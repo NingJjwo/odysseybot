@@ -4,10 +4,11 @@ import json
 import io
 import os
 import webserver
+import threading
+import time
+import asyncio
 from datetime import datetime
 from discord import app_commands
-
-
 
 DISCORD_TOKEN = os.environ['discordkey']
 NASA_API_KEY = os.environ['nasakey']
@@ -100,5 +101,46 @@ async def apod(interaction: discord.Interaction):
         print(f"Error: {e}")
         await interaction.followup.send(f"An error occurred: {str(e)}")
 
-webserver.keep_alive()
-bot_client.run(DISCORD_TOKEN)
+def start_discord_bot():
+    retry_count = 0
+    max_retries = 5
+    
+    while retry_count < max_retries:
+        try:
+            print(f"Attempting to start Discord bot (attempt {retry_count + 1}/{max_retries})")
+            bot_client.run(DISCORD_TOKEN)
+            break
+        except discord.errors.HTTPException as e:
+            if e.status == 429:
+                wait_time = 300 * (retry_count + 1) 
+                print(f"Rate limited. Waiting {wait_time} seconds before retry...")
+                time.sleep(wait_time)
+                retry_count += 1
+            else:
+                print(f"Discord HTTP error: {e}")
+                time.sleep(60)
+                retry_count += 1
+        except Exception as e:
+            print(f"Discord bot error: {e}")
+            time.sleep(60)
+            retry_count += 1
+    
+    if retry_count >= max_retries:
+        print("Max retries reached. Discord bot will remain offline.")
+        print("Flask server will continue running.")
+
+if __name__ == '__main__':
+   
+    webserver.keep_alive()
+    
+    
+    discord_thread = threading.Thread(target=start_discord_bot)
+    discord_thread.daemon = True
+    discord_thread.start()
+    
+    
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("Shutting down...")
