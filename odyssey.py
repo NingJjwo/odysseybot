@@ -36,7 +36,17 @@ tree = app_commands.CommandTree(bot_client)
     description="Picture of the Day"
 )
 async def apod(interaction: discord.Interaction):
-    await interaction.response.defer()
+    # Defer IMMEDIATELY before any processing
+    try:
+        await interaction.response.defer()
+    except discord.errors.NotFound:
+        # Interaction already expired, can't respond
+        print("Interaction expired before deferring")
+        return
+    except Exception as e:
+        print(f"Error deferring interaction: {e}")
+        return
+    
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
@@ -97,9 +107,15 @@ async def apod(interaction: discord.Interaction):
 
                 embed.set_footer(text=f"from {data.get('date', 'unknown')}")
 
+    except discord.errors.NotFound:
+        # Interaction expired, can't send followup
+        print("Interaction expired, couldn't send response")
     except Exception as e:
-        print(f"Error: {e}")
-        await interaction.followup.send(f"An error occurred: {str(e)}")
+        print(f"Error in apod command: {e}")
+        try:
+            await interaction.followup.send(f"An error occurred: {str(e)}")
+        except discord.errors.NotFound:
+            print("Couldn't send error message - interaction expired")
 
 def start_discord_bot():
     retry_count = 0
@@ -109,10 +125,10 @@ def start_discord_bot():
         try:
             print(f"Attempting to start Discord bot (attempt {retry_count + 1}/{max_retries})")
             bot_client.run(DISCORD_TOKEN)
-            break
+            break  # If successful, exit the loop
         except discord.errors.HTTPException as e:
-            if e.status == 429:
-                wait_time = 300 * (retry_count + 1) 
+            if e.status == 429:  # Rate limited
+                wait_time = 300 * (retry_count + 1)  # Exponential backoff: 5, 10, 15, 20, 25 minutes
                 print(f"Rate limited. Waiting {wait_time} seconds before retry...")
                 time.sleep(wait_time)
                 retry_count += 1
@@ -130,15 +146,15 @@ def start_discord_bot():
         print("Flask server will continue running.")
 
 if __name__ == '__main__':
-   
+    # Start Flask server
     webserver.keep_alive()
     
-    
+    # Start Discord bot in a separate thread
     discord_thread = threading.Thread(target=start_discord_bot)
     discord_thread.daemon = True
     discord_thread.start()
     
-    
+    # Keep the main thread alive
     try:
         while True:
             time.sleep(1)
